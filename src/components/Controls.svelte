@@ -6,6 +6,7 @@
 	export let highScores: Array<{ name: string; score: number }>;
 </script>
 
+<!--
 <div class="controls">
 	<label>
 		Bullet Range: {bulletRangePercent}%
@@ -27,4 +28,4 @@
 		{/each}
 	</ul>
 	<button on:click={submitScore}>Submit Score</button>
-</div>
+</div> -->
