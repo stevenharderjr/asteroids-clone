@@ -56,6 +56,9 @@ export interface ScoreResult {
 	label?: string;
 }
 
+let lastGravitySpike = 0;
+const gravitySpikeCooldown = 3000; // 3 seconds cooldown
+
 // --- Spawning Functions ---
 
 // Spawn an asteroid off-screen with a random targetRadius between smallest and 70.
@@ -247,6 +250,92 @@ export function fragmentAsteroid(bullet: Bullet, asteroid: Asteroid): Asteroid[]
 	}
 
 	return fragments;
+}
+
+export function applyGravitySpike(ship: Ship, asteroids: Asteroid[]) {
+	if (Date.now() - lastGravitySpike < gravitySpikeCooldown) return;
+	lastGravitySpike = Date.now();
+	// Constants to tune the effect:
+	const GRAVITY_STRENGTH = 180; // Base strength of the repelling force.
+	const SPEED_THRESHOLD = 10; // Maximum allowed speed; above this, treat as bullet hit.
+	const OPPOSITION_THRESHOLD = -1; // Dot product threshold.
+	const SHIP_VELOCITY_FACTOR = 0.5; // How much the ship's velocity influences the force.
+
+	// Loop through all asteroids.
+	for (let i = 0; i < asteroids.length; i++) {
+		const a = asteroids[i];
+		// Compute vector from ship to asteroid.
+		const dx = a.x - ship.x;
+		const dy = a.y - ship.y;
+		const dist = Math.sqrt(dx * dx + dy * dy);
+		if (dist === 0) continue; // Avoid division by zero.
+
+		// Compute repelling force that drops off with distance.
+		const forceMag = GRAVITY_STRENGTH / dist;
+		const forceX = (dx / dist) * forceMag;
+		const forceY = (dy / dist) * forceMag;
+
+		// Get asteroid's current velocity vector.
+		const currentVx = a.speed * Math.cos(a.angle);
+		const currentVy = a.speed * Math.sin(a.angle);
+
+		// Incorporate the ship's velocity:
+		// We'll add a portion of the ship's velocity to the repelling effect.
+		const shipForceX = SHIP_VELOCITY_FACTOR * ship.vx || 0;
+		const shipForceY = SHIP_VELOCITY_FACTOR * ship.vy || 0;
+
+		// Compute the new velocity vector by summing:
+		// 1. The current asteroid velocity,
+		// 2. The repelling force,
+		// 3. The ship's velocity component.
+		const newVx = currentVx + forceX + shipForceX;
+		const newVy = currentVy + forceY + shipForceY;
+		const newSpeed = Math.sqrt(newVx * newVx + newVy * newVy);
+
+		// Option 1: If new speed exceeds threshold, treat as a bullet hit.
+		if (newSpeed > SPEED_THRESHOLD) {
+			const dummyBullet = {
+				x: a.x,
+				y: a.y,
+				vx: newVx,
+				vy: newVy,
+				distanceTraveled: 0,
+				maxDistance: 0,
+				shotTime: Date.now(),
+				deltaShotTime: 0
+			} as Bullet;
+			spawnExplosion(a.x, a.y, dummyBullet, a, []);
+			const fragments = fragmentAsteroid(dummyBullet, a);
+			asteroids.splice(i, 1);
+			asteroids.push(...fragments);
+			continue;
+		}
+
+		// Option 2: If the asteroid's current velocity is strongly opposed to the force,
+		// fragment the asteroid.
+		const dot = currentVx * forceX + currentVy * forceY;
+		if (dot < OPPOSITION_THRESHOLD) {
+			const dummyBullet = {
+				x: a.x,
+				y: a.y,
+				vx: newVx,
+				vy: newVy,
+				distanceTraveled: 0,
+				maxDistance: 0,
+				shotTime: Date.now(),
+				deltaShotTime: 0
+			} as Bullet;
+			spawnExplosion(a.x, a.y, dummyBullet, a, []);
+			const fragments = fragmentAsteroid(dummyBullet, a);
+			asteroids.splice(i, 1);
+			asteroids.push(...fragments);
+			continue;
+		}
+
+		// Otherwise, update the asteroid's velocity based on newVx and newVy.
+		a.speed = newSpeed;
+		a.angle = Math.atan2(newVy, newVx);
+	}
 }
 
 // --- Update Functions ---
