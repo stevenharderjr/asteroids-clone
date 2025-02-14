@@ -26,22 +26,13 @@
 				overflow: hidden;
 			}
 
-			.game-viewport {
-				position: absolute;
-				top: 0;
-			}
-
 			.crawl-container {
+				z-index: 2;
 				position: relative;
-				z-index: 1;
 				width: 800px;
 				height: 300px;
 				bottom: -300px;
 				transform: perspective(200px) rotateX(20deg) skewY(0deg);
-			}
-
-			canvas {
-				display: block;
 			}
 
 			.crawl-text {

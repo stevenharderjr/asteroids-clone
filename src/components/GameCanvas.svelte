@@ -31,6 +31,8 @@
 	// Offscreen canvas for the static star background.
 	let starCanvas: HTMLCanvasElement;
 	let starCtx: CanvasRenderingContext2D;
+	let offscreenStarCanvas: HTMLCanvasElement;
+	let offscreenStarCtx: CanvasRenderingContext2D;
 	// Calculate the diagonal length to cover the rotated canvas.
 	const diagonal = Math.sqrt(width * width + height * height);
 	// Global rotation for the star background.
@@ -160,36 +162,24 @@
 		if (gameOn && !asteroids.length) nextLevel();
 		sparks = updateSparks(sparks);
 		snippets = updateSnippets(snippets);
-		starRotation -= starRotationSpeed;
 	}
 
 	function draw() {
 		// Clear the canvas.
 		ctx.clearRect(0, 0, width, height);
 
-		// Draw the star background.
-		ctx.save();
-		// Translate to the center of the canvas.
-		ctx.translate(width / 2, height / 2);
-		// Rotate slowly.
-		ctx.rotate(starRotation);
-		// Draw the starCanvas such that it is centered.
-		ctx.drawImage(starCanvas, -diagonal / 2, -diagonal / 2, diagonal, diagonal);
-		ctx.restore();
+		// // Draw the star background.
+		// starCtx.save();
+		// // Translate to the center of the canvas.
+		// starCtx.translate(width / 2, height / 2);
+		// // Rotate slowly.
+		// starCtx.rotate(starRotation);
+		// // Draw the starCanvas such that it is centered.
+		// starCtx.drawImage(starCanvas, -diagonal / 2, -diagonal / 2, diagonal, diagonal);
+		// starCtx.restore();
 
 		// Then draw other game elements on top (ship, asteroids, bullets, sparks, etc.)
-		// Draw ship.
-		ctx.save();
-		ctx.translate(ship.x, ship.y);
-		ctx.rotate(ship.angle);
-		ctx.strokeStyle = 'white';
-		ctx.beginPath();
-		ctx.moveTo(20, 0);
-		ctx.lineTo(-10, 10);
-		ctx.lineTo(-10, -10);
-		ctx.closePath();
-		ctx.stroke();
-		ctx.restore();
+
 		// Draw asteroids.
 		ctx.strokeStyle = 'gray';
 		for (const a of asteroids) {
@@ -207,6 +197,9 @@
 				else ctx.lineTo(vx, vy);
 			}
 			ctx.closePath();
+			ctx.fillStyle = '#0008';
+			ctx.fill();
+
 			ctx.stroke();
 		}
 		// Draw bullets.
@@ -225,6 +218,20 @@
 			ctx.fill();
 			ctx.restore();
 		});
+		// Draw ship.
+		ctx.save();
+		ctx.translate(ship.x, ship.y);
+		ctx.rotate(ship.angle);
+		ctx.strokeStyle = 'white';
+		ctx.beginPath();
+		ctx.moveTo(20, 0);
+		ctx.lineTo(-10, 10);
+		ctx.lineTo(-10, -10);
+		ctx.closePath();
+		ctx.fillStyle = '#0008';
+		ctx.fill();
+		ctx.stroke();
+		ctx.restore();
 		// Draw snippets
 		drawSnippets(ctx, snippets);
 		// Draw sparks.
@@ -233,7 +240,7 @@
 			const t = age / sparkLifetime;
 			const green = Math.round(150 * (1 - t));
 			const alpha = 1 - t;
-			ctx.fillStyle = `rgba(255, ${green}, 0, ${alpha})`;
+			ctx.fillStyle = `rgba(${green}, 220, 255, ${alpha})`;
 			ctx.beginPath();
 			ctx.arc(x, y, 2, 0, PI2);
 			ctx.fill();
@@ -247,14 +254,20 @@
 	}
 
 	function gameLoop() {
+		// Update star background rotation.
+		updateStarBackground();
 		update();
 		draw();
 		requestAnimationFrame(gameLoop);
 	}
 
 	onMount(() => {
-		ctx = canvas.getContext('2d')!;
+		starCtx = starCanvas.getContext('2d')!;
+		starCanvas.width = width;
+		starCanvas.height = height;
 		generateStarBackground(); // Generate the starry background once.
+
+		ctx = canvas.getContext('2d')!;
 		// Initialize asteroids.
 		asteroids = [];
 		setTimeout(() => {
@@ -267,24 +280,45 @@
 
 	// Generate the star background on an offscreen canvas.
 	function generateStarBackground() {
-		starCanvas = document.createElement('canvas');
-		starCanvas.width = diagonal;
-		starCanvas.height = diagonal;
-		starCtx = starCanvas.getContext('2d')!;
-		// Fill background with black.
-		starCtx.fillStyle = 'black';
-		starCtx.fillRect(0, 0, diagonal, diagonal);
+		offscreenStarCanvas = document.createElement('canvas');
+		offscreenStarCanvas.width = diagonal;
+		offscreenStarCanvas.height = diagonal;
+		offscreenStarCtx = offscreenStarCanvas.getContext('2d')!;
+
+		// Fill with black.
+		offscreenStarCtx.fillStyle = 'black';
+		offscreenStarCtx.fillRect(0, 0, diagonal, diagonal);
+
 		// Draw stars.
 		const starCount = 200;
 		for (let i = 0; i < starCount; i++) {
-			// Randomly choose a star size.
-			// Most stars will be 1x1, but about 20% will be 2x2.
 			const starSize = Math.random() < 0.2 ? 2 : 1;
 			const x = Math.floor(Math.random() * diagonal);
 			const y = Math.floor(Math.random() * diagonal);
-			starCtx.fillStyle = 'white';
-			starCtx.fillRect(x, y, starSize, starSize);
+			offscreenStarCtx.fillStyle = 'white';
+			offscreenStarCtx.fillRect(x, y, starSize, starSize);
 		}
+	}
+
+	function updateStarBackground() {
+		starRotation -= starRotationSpeed;
+		// Clear the star background canvas.
+		starCtx.clearRect(0, 0, starCanvas.width, starCanvas.height);
+		starCtx.save();
+		// Translate to the center of the starCanvas.
+		starCtx.translate(starCanvas.width / 2, starCanvas.height / 2);
+		// Rotate the background.
+		starCtx.rotate(starRotation);
+		// Draw the pre-generated star image.
+		// Since starCanvas is our visible element, we can either draw our offscreen image
+		// (if you created one) or redraw the stars here.
+		// For simplicity, assume we stored our pre-generated star image in a separate offscreen canvas,
+		// say offscreenStarCanvas.
+		starCtx.drawImage(offscreenStarCanvas, -diagonal / 2, -diagonal / 2, diagonal, diagonal);
+		// Alternatively, if you generated the stars directly on starCanvas initially,
+		// you might want to re-draw them here.
+		// (For now, we'll assume you're redrawing from an offscreen image.)
+		starCtx.restore();
 	}
 
 	function initAsteroids() {
@@ -302,6 +336,7 @@
 </script>
 
 <div class="game-container">
+	<canvas class="star-background" bind:this={starCanvas}></canvas>
 	<div class="crawl-container">
 		{#if paused}
 			<div class="crawl-text">
@@ -315,5 +350,18 @@
 			</div>
 		{/key}
 	</div>
-	<canvas class="game-viewport" bind:this={canvas} {width} {height}></canvas>
+	<canvas class="game-elements" bind:this={canvas} {width} {height}></canvas>
 </div>
+
+<style>
+	canvas {
+		position: absolute;
+		top: 0;
+	}
+	.star-background {
+		z-index: 1;
+	}
+	.game-elements {
+		z-index: 3;
+	}
+</style>
