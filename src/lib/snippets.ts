@@ -7,6 +7,8 @@ export interface Snippet {
 	alpha: number; // Current transparency (1 = opaque, 0 = fully transparent)
 	lifetime: number; // Remaining frames to live
 	initialLifetime: number; // Total lifetime (for alpha calculation)
+	initialFontSize: number;
+	finalFontSize: number;
 	vx: number; // Horizontal velocity (pixels per frame)
 	vy: number; // Vertical velocity (pixels per frame)
 }
@@ -16,7 +18,15 @@ export interface Snippet {
 // the snippet will move in that direction at 1 pixel per frame; otherwise, it moves upward.
 export function createSnippet(
 	text: string,
-	options?: { x?: number; y?: number; vx?: number; vy?: number; lifetime?: number }
+	options?: {
+		x?: number;
+		y?: number;
+		vx?: number;
+		vy?: number;
+		lifetime?: number;
+		initialFontSize?: number;
+		finalFontSize?: number;
+	}
 ): Snippet {
 	// Default values.
 	const defaultX = width / 2;
@@ -24,6 +34,10 @@ export function createSnippet(
 	const defaultVx = 0;
 	const defaultVy = -1;
 	const defaultLifetime = 60;
+	const defaultInitialFontSize = 14;
+	const defaultFinalFontSize = 20;
+
+	const { initialFontSize, finalFontSize } = options || {};
 
 	const x = options?.x !== undefined ? options.x : defaultX;
 	const y = options?.y !== undefined ? options.y : defaultY;
@@ -45,7 +59,18 @@ export function createSnippet(
 		vy = defaultVy;
 	}
 
-	return { x, y, text: text.toUpperCase(), alpha: 1, lifetime, initialLifetime: lifetime, vx, vy };
+	return {
+		x,
+		y,
+		text: text.toUpperCase(),
+		alpha: 1,
+		lifetime,
+		initialLifetime: lifetime,
+		vx,
+		vy,
+		initialFontSize: initialFontSize || defaultInitialFontSize,
+		finalFontSize: finalFontSize || defaultFinalFontSize
+	};
 }
 
 // Update all snippets: each snippet moves according to its velocity and fades out.
@@ -63,17 +88,15 @@ export function updateSnippets(snippets: Snippet[]): Snippet[] {
 
 // Draw the snippets on the canvas.
 export function drawSnippets(ctx: CanvasRenderingContext2D, snippets: Snippet[]): void {
-	// Define initial and final font sizes.
-	const initialFontSize = 14; // in pixels
-	const finalFontSize = 20; // in pixels (when fully faded out)
 	ctx.textAlign = 'center';
 	ctx.textBaseline = 'middle';
 
 	for (const s of snippets) {
+		const { initialFontSize, finalFontSize } = s;
 		// As s.alpha goes from 1 to 0, increase font size.
 		const fontSize = initialFontSize + (finalFontSize - initialFontSize) * (1 - s.alpha);
 		ctx.font = `bold ${fontSize}px sans-serif`;
-		ctx.fillStyle = `rgba(150,150,150,${s.alpha.toFixed(2)})`;
+		ctx.fillStyle = `rgba(150,255,150,${s.alpha.toFixed(2)})`;
 		ctx.fillText(s.text, s.x, s.y);
 	}
 	ctx.textAlign = 'left';

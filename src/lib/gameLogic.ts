@@ -1,5 +1,3 @@
-// src/lib/gameLogic.ts
-
 import {
 	width,
 	height,
@@ -11,7 +9,9 @@ import {
 	SNIPE_TIME_THRESHOLD,
 	MIN_SNIPE_DISTANCE
 } from './constants';
+import { writable } from 'svelte/store';
 
+export const currentLevel = writable(1);
 // --- Constants for Fragmentation ---
 export const smallestFragmentRadius = 12;
 export const smallestFragmentArea = Math.PI * smallestFragmentRadius * smallestFragmentRadius; // area of 12px radius
@@ -47,6 +47,8 @@ export interface Spark {
 	vx: number;
 	vy: number;
 	age: number;
+	color: string;
+	alpha: number;
 }
 
 export interface ScoreResult {
@@ -138,7 +140,9 @@ export function spawnExplosion(
 			y,
 			vx: speed * Math.cos(sparkAngle),
 			vy: speed * Math.sin(sparkAngle),
-			age: 0
+			age: 0,
+			color: '',
+			alpha: 1
 		});
 	}
 }
@@ -169,7 +173,7 @@ export function fragmentAsteroid(bullet: Bullet, asteroid: Asteroid): Asteroid[]
 	}
 
 	let availableArea = asteroid.area;
-	let fragments: Asteroid[] = [];
+	const fragments: Asteroid[] = [];
 
 	// Compute parent's velocity vector.
 	const parentV = {
@@ -186,9 +190,6 @@ export function fragmentAsteroid(bullet: Bullet, asteroid: Asteroid): Asteroid[]
 
 	// New constant to reduce overall explosion force.
 	const explosionForceScale = 0.5;
-
-	// Fixed spread for additional randomness.
-	const spreadRange = 40 * (Math.PI / 180); // 40° total variation.
 
 	while (availableArea >= smallestFragmentArea) {
 		// Choose a fragment area between smallestFragmentArea and up to half of availableArea.
@@ -223,7 +224,7 @@ export function fragmentAsteroid(bullet: Bullet, asteroid: Asteroid): Asteroid[]
 
 		// Additional visual properties.
 		const vertexCount = Math.floor(8 + Math.random() * 5);
-		let offsets: number[] = [];
+		const offsets: number[] = [];
 		for (let i = 0; i < vertexCount; i++) {
 			offsets.push(0.8 + Math.random() * 0.4);
 		}
@@ -239,8 +240,7 @@ export function fragmentAsteroid(bullet: Bullet, asteroid: Asteroid): Asteroid[]
 			area: fragArea,
 			vertexCount,
 			offsets,
-			offsetAngle,
-			type: 'small' // All fragments are now considered "small"
+			offsetAngle
 		});
 
 		availableArea -= fragArea;
@@ -251,30 +251,58 @@ export function fragmentAsteroid(bullet: Bullet, asteroid: Asteroid): Asteroid[]
 
 // --- Update Functions ---
 export function updateAsteroids(asteroids: Asteroid[]): void {
-	asteroids.forEach((a) => {
-		a.x += a.speed * Math.cos(a.angle);
-		a.y += a.speed * Math.sin(a.angle);
-		if (a.x < -outerMargin) a.x = width + outerMargin;
-		if (a.x > width + outerMargin) a.x = -outerMargin;
-		if (a.y < -outerMargin) a.y = height + outerMargin;
-		if (a.y > height + outerMargin) a.y = -outerMargin;
-	});
+	let i = asteroids.length;
+	if (i < 1) return;
+	while (i--) {
+		const a = asteroids[i];
+		const { x, y, speed, angle } = a;
+		a.x += speed * Math.cos(angle);
+		a.y += speed * Math.sin(angle);
+		if (x < -outerMargin) a.x = width + outerMargin;
+		if (x > width + outerMargin) a.x = -outerMargin;
+		if (y < -outerMargin) a.y = height + outerMargin;
+		if (y > height + outerMargin) a.y = -outerMargin;
+	}
 }
 
 export function updateBullets(bullets: Bullet[]): Bullet[] {
-	bullets.forEach((b) => {
-		const stepDistance = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+	const updatedBullets = [];
+	let i = bullets.length;
+	if (i < 1) return [];
+	while (i--) {
+		const b = bullets[i];
+		const { distanceTraveled, maxDistance } = b;
+		if (distanceTraveled >= maxDistance) continue;
+		const { vx, vy } = b;
+		const stepDistance = Math.sqrt(vx * vx + vy * vy);
 		b.distanceTraveled += stepDistance;
-		b.x += b.vx;
-		b.y += b.vy;
+		b.x += vx;
+		b.y += vy;
+		const { x, y } = b;
 		// Wrap positions.
-		if (b.x < 0) b.x += width;
-		if (b.x > width) b.x -= width;
-		if (b.y < 0) b.y += height;
-		if (b.y > height) b.y -= height;
-	});
-	// Return only the bullets that have not exceeded their maxDistance.
-	return bullets.filter((b) => b.distanceTraveled <= b.maxDistance);
+		if (x < 0) b.x += width;
+		if (x > width) b.x -= width;
+		if (y < 0) b.y += height;
+		if (y > height) b.y -= height;
+		updatedBullets.push(b);
+	}
+	return updatedBullets;
+}
+
+export function updateSparks(sparks: Spark[]): Spark[] {
+	let i = sparks.length;
+	if (i < 1) return [];
+	const updatedSparks = [];
+	while (i--) {
+		const spark = sparks[i];
+		const { vx, vy, age } = spark;
+		if (age > sparkLifetime) continue;
+		spark.x += vx;
+		spark.y += vy;
+		spark.age++;
+		updatedSparks.push(spark);
+	}
+	return updatedSparks;
 }
 
 export function computeScoreForHit(
@@ -286,7 +314,7 @@ export function computeScoreForHit(
 	// Linear interpolation: smallest asteroid (targetRadius == 12) yields max score,
 	// largest (targetRadius == 70) yields min score.
 	const t = (asteroid.targetRadius - 12) / (70 - 12);
-	let baseScore = Math.round(maxScore - t * (maxScore - minScore));
+	const baseScore = Math.round(maxScore - t * (maxScore - minScore));
 
 	// Check if both snipe conditions are met.
 	let multiplier = 1;
@@ -305,18 +333,6 @@ export function computeScoreForHit(
 		value: finalScore,
 		label: multiplier > 1 ? `SNIPE (${baseScore}×${multiplier})` : undefined
 	};
-}
-
-export function updateSparks(sparks: Spark[]): Spark[] {
-	let newSparks: Spark[] = [];
-	for (const spark of sparks) {
-		if (spark.age >= sparkLifetime) continue;
-		spark.x += spark.vx;
-		spark.y += spark.vy;
-		spark.age++;
-		newSparks.push(spark);
-	}
-	return newSparks;
 }
 
 // --- API Functions ---

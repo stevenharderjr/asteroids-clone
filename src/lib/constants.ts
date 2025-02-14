@@ -13,7 +13,7 @@ export const maxHitScore = 100; // Score for the smallest asteroid (targetRadius
 export const sparkLifetime = 50; // frames
 
 // Mass boundaries (using targetRadius as a proxy for mass)
-export const minMass = 12; // smallest targetRadius
+export const minRadius = 12; // smallest targetRadius
 export const maxRadius = 70; // largest targetRadius
 export const massWeightExponent = 1.5;
 

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { Snippet } from '../lib/snippets';
-	import { createSnippet, updateSnippets, drawSnippets } from '../lib/snippets';
+	import { type Snippet, createSnippet, updateSnippets, drawSnippets } from '../lib/snippets';
 	import {
 		width,
 		height,
@@ -21,9 +20,11 @@
 		fragmentAsteroid,
 		updateAsteroids,
 		updateBullets,
-		updateSparks
+		updateSparks,
+		currentLevel
 	} from '../lib/gameLogic';
 
+	$: level = $currentLevel;
 	let canvas: HTMLCanvasElement;
 	let ctx: CanvasRenderingContext2D;
 
@@ -57,6 +58,26 @@
 	let bulletRangePercent = 100;
 	let lastShotTime = 0;
 
+	// Add a paused state.
+	let gameOn = false;
+	let paused = false;
+	let pauseMessage: Snippet | null = null;
+
+	// Listen for Enter key to toggle pause.
+	function handleKeyDown(e: KeyboardEvent) {
+		// If Enter (key code 13 or key "Enter") is pressed, toggle pause.
+		if (paused) {
+			paused = false;
+		} else if (e.key === 'Enter') {
+			paused = !paused;
+		}
+		keys[e.key] = true;
+	}
+
+	function handleKeyUp(e: KeyboardEvent) {
+		keys[e.key] = false;
+	}
+
 	function shootBullet(
 		ship: { x: number; y: number; angle: number },
 		bulletRangePercent: number,
@@ -83,6 +104,8 @@
 	}
 
 	function update() {
+		if (paused) return;
+
 		// Ship movement.
 		if (keys['ArrowLeft']) ship.angle -= ship.rotationSpeed;
 		if (keys['ArrowRight']) ship.angle += ship.rotationSpeed;
@@ -123,16 +146,10 @@
 					const { value, label } = computeScoreForHit(asteroid, bullet);
 					score += value;
 					snippets.push(createSnippet(label || '' + value, bullet));
-					if (asteroid.type !== 'small') {
-						const fragments = fragmentAsteroid(bullet, asteroid);
-						spawnExplosion(bullet.x, bullet.y, bullet, asteroid, sparks);
-						asteroids.splice(j, 1);
-						asteroids.push(...fragments);
-					} else {
-						spawnExplosion(bullet.x, bullet.y, bullet, asteroid, sparks);
-						asteroids.splice(j, 1);
-						// asteroids.push(spawnAsteroid());
-					}
+					const fragments = fragmentAsteroid(bullet, asteroid);
+					spawnExplosion(bullet.x, bullet.y, bullet, asteroid, sparks);
+					asteroids.splice(j, 1);
+					asteroids.push(...fragments);
 					break;
 				}
 			}
@@ -140,6 +157,7 @@
 				bullets.splice(i, 1);
 			}
 		}
+		if (gameOn && !asteroids.length) nextLevel();
 		sparks = updateSparks(sparks);
 		snippets = updateSnippets(snippets);
 		starRotation -= starRotationSpeed;
@@ -174,19 +192,23 @@
 		ctx.restore();
 		// Draw asteroids.
 		ctx.strokeStyle = 'gray';
-		asteroids.forEach((a) => {
+		for (const a of asteroids) {
+			const { x, y, vertexCount, offsetAngle, radius, offsets } = a;
 			ctx.beginPath();
-			for (let i = 0; i < a.vertexCount; i++) {
-				const currentAngle = i * (PI2 / a.vertexCount) + a.offsetAngle;
-				const r = a.radius * a.offsets[i];
-				const vx = a.x + r * Math.cos(currentAngle);
-				const vy = a.y + r * Math.sin(currentAngle);
-				if (i === 0) ctx.moveTo(vx, vy);
+			let i = vertexCount;
+			if (i < 1) continue;
+			const lastIndex = i - 1;
+			while (i--) {
+				const currentAngle = i * (PI2 / vertexCount) + offsetAngle;
+				const r = radius * offsets[i];
+				const vx = x + r * Math.cos(currentAngle);
+				const vy = y + r * Math.sin(currentAngle);
+				if (i === lastIndex) ctx.moveTo(vx, vy);
 				else ctx.lineTo(vx, vy);
 			}
 			ctx.closePath();
 			ctx.stroke();
-		});
+		}
 		// Draw bullets.
 		ctx.fillStyle = 'rgb(0,220,255)'; // A lovely orange.
 		bullets.forEach((b) => {
@@ -206,16 +228,19 @@
 		// Draw snippets
 		drawSnippets(ctx, snippets);
 		// Draw sparks.
-		sparks.forEach((spark) => {
-			const t = spark.age / sparkLifetime;
+		for (const spark of sparks) {
+			const { age, x, y } = spark;
+			const t = age / sparkLifetime;
 			const green = Math.round(150 * (1 - t));
 			const alpha = 1 - t;
 			ctx.fillStyle = `rgba(255, ${green}, 0, ${alpha})`;
 			ctx.beginPath();
-			ctx.arc(spark.x, spark.y, 2, 0, PI2);
+			ctx.arc(x, y, 2, 0, PI2);
 			ctx.fill();
-		});
+		}
 		// Draw score.
+		ctx.textAlign = 'left';
+		ctx.textBaseline = 'top';
 		ctx.fillStyle = 'white';
 		ctx.font = '14px sans-serif';
 		ctx.fillText(`Score: ${score}`, 10, 10);
@@ -232,12 +257,12 @@
 		generateStarBackground(); // Generate the starry background once.
 		// Initialize asteroids.
 		asteroids = [];
-		for (let i = 0; i < numAsteroids; i++) {
-			asteroids.push(spawnAsteroid());
-		}
+		setTimeout(() => {
+			initAsteroids();
+		}, 2000);
 		gameLoop();
-		window.addEventListener('keydown', (e) => (keys[e.key] = true));
-		window.addEventListener('keyup', (e) => (keys[e.key] = false));
+		window.addEventListener('keydown', handleKeyDown);
+		window.addEventListener('keyup', handleKeyUp);
 	});
 
 	// Generate the star background on an offscreen canvas.
@@ -261,6 +286,34 @@
 			starCtx.fillRect(x, y, starSize, starSize);
 		}
 	}
+
+	function initAsteroids() {
+		for (let i = 0; i < numAsteroids; i++) {
+			asteroids.push(spawnAsteroid());
+		}
+		gameOn = true;
+	}
+
+	function nextLevel() {
+		gameOn = false;
+		currentLevel.update((n) => n + 1);
+		setTimeout(initAsteroids, 3000);
+	}
 </script>
 
-<canvas bind:this={canvas} {width} {height}></canvas>
+<div class="game-container">
+	<div class="crawl-container">
+		{#if paused}
+			<div class="crawl-text">
+				<p>GAME PAUSED</p>
+				<p style="position:relative; left:20px;">PRESS ANY KEY TO CONTINUE...</p>
+			</div>
+		{/if}
+		{#key level}
+			<div class="crawl-text">
+				LEVEL {level}
+			</div>
+		{/key}
+	</div>
+	<canvas class="game-viewport" bind:this={canvas} {width} {height}></canvas>
+</div>
