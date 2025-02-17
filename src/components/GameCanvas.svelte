@@ -14,7 +14,6 @@
 	} from '../lib/constants';
 	import type { Asteroid, Bullet, Spark } from '../lib/gameLogic';
 	import {
-		applyGravitySpike,
 		computeScoreForHit,
 		spawnAsteroid,
 		spawnExplosion,
@@ -45,7 +44,7 @@
 	let ship = {
 		x: width / 2,
 		y: height / 2,
-		angle: 0,
+		angle: -1.5708,
 		velocity: { x: 0, y: 0 },
 		rotationSpeed: (Math.PI / 180) * 3,
 		acceleration: 0.1,
@@ -126,9 +125,6 @@
 			lastShotTime = newLastShotTime;
 			bullets.push(bullet);
 		}
-		if (keys['ArrowDown']) {
-			applyGravitySpike(ship, asteroids);
-		}
 		ship.x += ship.velocity.x;
 		ship.y += ship.velocity.y;
 		if (ship.x < 0) ship.x += width;
@@ -163,17 +159,6 @@
 				bullets.splice(i, 1);
 			}
 		}
-		// for (let i = asteroids.length - 1; i >= 0; i--) {
-		// 	const a = asteroids[i];
-		// 	const dx = a.x - ship.x;
-		// 	const dy = a.y - ship.y;
-		// 	if (dx * dx + dy * dy < (ship.radius + a.radius) * (ship.radius + a.radius)) {
-		// 		// The ship is hit by an asteroid.
-		// 		applyGravitySpike(ship, asteroids);
-		// 		// You can also trigger other effects (e.g. game over or reduce ship health).
-		// 		break;
-		// 	}
-		// }
 		if (gameOn && !asteroids.length) nextLevel();
 		sparks = updateSparks(sparks);
 		snippets = updateSnippets(snippets);
