@@ -13,7 +13,7 @@ import { getLevelConfig } from './levelConfig';
 import { writable } from 'svelte/store';
 
 export const currentLevel = writable(1);
-export const shipsRemaining = writable(1);
+export const shipsRemaining = writable(3);
 export const dead = writable(false);
 // --- Constants for Fragmentation ---
 export const smallestFragmentRadius = 12;
@@ -291,6 +291,7 @@ export function fragmentAsteroid(bullet: Bullet, asteroid: Asteroid): Asteroid[]
 
 // --- Update Functions ---
 export function updateAsteroids(asteroids: Asteroid[], ship: Ship): Asteroid | null {
+	collision = null;
 	const asteroidCount = asteroids.length;
 	let i = asteroidCount;
 	if (i < 1) {
@@ -304,10 +305,13 @@ export function updateAsteroids(asteroids: Asteroid[], ship: Ship): Asteroid | n
 		const { x, y, speed, angle, radius } = a;
 		a.x += speed * Math.cos(angle);
 		a.y += speed * Math.sin(angle);
-		if (x < -ASTEROID_WRAP_FALLBACK_MARGIN) a.x = width + ASTEROID_WRAP_FALLBACK_MARGIN;
-		if (x > width + ASTEROID_WRAP_FALLBACK_MARGIN) a.x = -ASTEROID_WRAP_FALLBACK_MARGIN;
-		if (y < -ASTEROID_WRAP_FALLBACK_MARGIN) a.y = height + ASTEROID_WRAP_FALLBACK_MARGIN;
-		if (y > height + ASTEROID_WRAP_FALLBACK_MARGIN) a.y = -ASTEROID_WRAP_FALLBACK_MARGIN;
+
+		const xMax = width + radius;
+		const yMax = height + radius;
+		if (x < -radius) a.x = xMax;
+		if (x > xMax) a.x = -radius;
+		if (y < -radius) a.y = yMax;
+		if (y > yMax) a.y = -radius;
 
 		// Check for collision with the ship.
 		const dx = a.x - shipX;
@@ -324,16 +328,11 @@ export function updateAsteroids(asteroids: Asteroid[], ship: Ship): Asteroid | n
 			/// detailed comparison if close
 			const dist = Math.sqrt(dx * dx + dy * dy);
 			if (dist < collisionDistance) {
-				// Collision detected: trigger game over.
 				targetAsteroid = null;
 				collision = a;
-				shipsRemaining.update((n) => n - 1);
-				dead.update((n) => !n);
-				// Optionally, you can break out early if the game is over.
 			}
 		}
 	}
-
 	return collision || null;
 }
 

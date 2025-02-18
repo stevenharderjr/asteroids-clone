@@ -45,6 +45,10 @@
 	const starRotationSpeed = 0.0005;
 	let reticleRotation = 0;
 	const reticleRotationSpeed = 0.1;
+	// Respawn state.
+	let respawning = false;
+	let respawnStartTime = 0;
+	const respawnDuration = 2000;
 
 	// Game state.
 	let ship: Ship = {
@@ -53,7 +57,7 @@
 		vx: 0,
 		vy: -0.1,
 		speed: 0,
-		angle: 0,
+		angle: -1.5708,
 		turnRate: 0, // New property to store current turning speed.
 		acceleration: 0.1,
 		radius: 10
@@ -84,17 +88,18 @@
 	let paused = false;
 	let pauseMessage: Snippet | null = null;
 
+	// function handleKeysWhileSpawning(e: KeyboardEvent) {}
+
 	// Listen for Enter key to toggle pause.
 	function handleKeyDown(e: KeyboardEvent) {
-		// If Enter (key code 13 or key "Enter") is pressed, toggle pause.
+		const { key } = e;
 		if (paused) {
 			paused = false;
-		} else if (e.key === 'Enter') {
-			if (gameOver) {
-				resetGame();
-			} else paused = !paused;
+		} else if (key === 'Enter') {
+			if (gameOver) resetGame();
+			else paused = !paused;
 		}
-		keys[e.key] = true;
+		keys[key] = true;
 	}
 
 	function handleKeyUp(e: KeyboardEvent) {
@@ -133,9 +138,7 @@
 			bullet: { range: bulletRange, speed: bulletSpeed, shotCooldown }
 		} = config;
 
-		if ($dead) {
-			ship = deadShip;
-		} else {
+		if (!gameOver) {
 			// Easing for ship turning:
 			if (keys['ArrowLeft']) {
 				// Decrease turnRate (make it negative) up to a max negative value.
@@ -170,19 +173,26 @@
 
 			// Shooting.
 			if (keys[' '] && Date.now() - lastShotTime > shotCooldown) {
-				const { bullet, newLastShotTime } = shootBullet(
-					ship,
-					bulletRange,
-					bulletSpeed,
-					lastShotTime
-				);
-				lastShotTime = newLastShotTime;
-				bullets.push(bullet);
+				if (!respawning || Date.now() - respawnStartTime > respawnDuration) {
+					respawning = false;
+					const { bullet, newLastShotTime } = shootBullet(
+						ship,
+						bulletRange,
+						bulletSpeed,
+						lastShotTime
+					);
+					lastShotTime = newLastShotTime;
+					bullets.push(bullet);
+				}
 			}
 		}
 
 		// Update asteroids, bullets, sparks.
 		const collision = updateAsteroids(asteroids, ship);
+		if (collision && !respawning) {
+			respawning = !gameOver;
+			if (respawning) initRespawn();
+		}
 		bullets = updateBullets(bullets);
 		// Handle collisions.
 		for (let i = bullets.length - 1; i >= 0; i--) {
@@ -268,8 +278,23 @@
 			ctx.fill();
 			ctx.restore();
 		}
-
-		if (!$dead) {
+		// If respawning, draw the ship at the center in a shimmering, indistinct manner.
+		if (respawning) {
+			const elapsed = Date.now() - respawnStartTime;
+			// Calculate a shimmer alpha that oscillates (for instance, using sine).
+			const shimmerAlpha = 0.65 + 0.35 * Math.sin(elapsed / 100);
+			ctx.save();
+			ctx.translate(ship.x, ship.y);
+			ctx.rotate(ship.angle);
+			ctx.fillStyle = `rgba(160,160,160,${shimmerAlpha.toFixed(2)})`;
+			ctx.beginPath();
+			ctx.moveTo(20, 0);
+			ctx.lineTo(-10, 10);
+			ctx.lineTo(-10, -10);
+			ctx.closePath();
+			ctx.fill();
+			ctx.restore();
+		} else if (!gameOver) {
 			// Draw ship.
 			ctx.save();
 			ctx.translate(ship.x, ship.y);
@@ -432,6 +457,19 @@
 		gameOn = true;
 	}
 
+	function initRespawn() {
+		if (gameOver) return;
+		dead.set(false);
+		respawning = true;
+		respawnStartTime = Date.now();
+		// Position the ship at the center.
+		ship.x = width / 2;
+		ship.y = height / 2;
+		ship.vx = 0;
+		ship.vy = 0;
+		ship.angle = -1.5708;
+	}
+
 	function nextLevel() {
 		gameOn = false;
 		currentLevel.update((n) => n + 1);
@@ -447,7 +485,7 @@
 			vx: 0,
 			vy: -0.1,
 			speed: 0,
-			angle: 0,
+			angle: -1.5708,
 			turnRate: 0, // New property to store current turning speed.
 			acceleration: 0.1,
 			radius: 10
@@ -473,6 +511,7 @@
 		dead.set(false);
 		shipsRemaining.set(3);
 		currentLevel.set(1);
+		respawning = false;
 		// Initialize asteroids after a delay if desired.
 		setTimeout(initAsteroids, 2000);
 	}
