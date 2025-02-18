@@ -3,36 +3,45 @@ export const width = 800;
 export const height = 600;
 export const PI2 = Math.PI * 2;
 
+// Define constants for steering easing.
+export const PLAYER_MAX_TURN_RATE = 0.07; // radians per frame
+export const PLAYER_MIN_TURN_RATE = 0.07;
+export const PLAYER_MAX_TURN_ACCEL = 0.02; // how quickly the turn rate increases in response to input
+export const PLAYER_MAX_TURN_DECEL = 0.02; // how quickly turn rate decays without input
+export const PLAYER_MIN_TURN_ACCEL = 0.02;
+export const PLAYER_MIN_TURN_DECEL = 0.02;
+
 // Define constants for scoring.
-export const SNIPE_TIME_THRESHOLD = 1000; // 1 second threshold for a snipe.
-export const SNIPE_MULTIPLIER = 2; // Snipe shots score double.
-export const MIN_SNIPE_DISTANCE = 0.25; // 25% of bullet's range.
-export const minHitScore = 10; // Score for the largest asteroid (targetRadius = 70)
-export const maxHitScore = 100; // Score for the smallest asteroid (targetRadius = 12)
+export const SNIPE_MAX_TIME_THRESHOLD = 1000;
+export const SNIPE_MIN_TIME_THRESHOLD = 1000;
+export const SNIPE_MIN_SCORE_MULTIPLIER = 2;
+export const SNIPE_MAX_SCORE_MULTIPLIER = 8;
+export const SNIPE_MAX_DISTANCE = width * 0.5;
+export const SNIPE_MIN_DISTANCE = width * 0.25;
+export const ASTEROID_MIN_HIT_SCORE = 10; // Score for the largest asteroids
+export const ASTEROID_MAX_HIT_SCORE = 200; // Score for the smallest fragments
 
-export const sparkLifetime = 50; // frames
+export const SPARK_MAX_LIFETIME = 50; // frames
+export const SPARK_MIN_LIFETIME = 50; // frames
 
-// Mass boundaries (using targetRadius as a proxy for mass)
-export const minRadius = 12; // smallest targetRadius
-export const maxRadius = 70; // largest targetRadius
-export const massWeightExponent = 1.5;
-
-// Outer wrap margin for asteroids
-export const outerMargin = 50;
+export const ASTEROID_MIN_RADIUS = 12;
+export const ASTEROID_MAX_RADIUS = 70;
+export const ASTEROID_MASS_WEIGHT_EXPONENT = 1.5;
+export const ASTEROID_MAX_COUNT = 8;
+export const ASTEROID_MIN_COUNT = 8;
+export const ASTEROID_MAX_INITIAL_SPEED = 2;
+export const ASTEROID_MIN_INITIAL_SPEED = 1;
+export const ASTEROID_MAX_FRAG_SPEED = 5;
+export const ASTEROID_MIN_FRAG_SPEED = 0.1;
+export const ASTEROID_WRAP_FALLBACK_MARGIN = 50;
+export const ASTEROID_MIN_FRAGMENT_AREA = Math.PI * 8 * 8;
+export const ASTEROID_MAX_EXPLOSION_FACTOR = 1;
+export const ASTEROID_MIN_EXPLOSION_FACTOR = 0.1;
 
 // Shooting parameters
-export const shootCooldown = 100; // ms between shots
-export const bulletSpeed = 7;
-export const numAsteroids = 8;
-
-// Fragmentation order and sizes
-export type FragmentType = 'full' | 'large' | 'medium' | 'small';
-export const fragmentOrder: FragmentType[] = ['full', 'large', 'medium', 'small'];
-// In src/lib/constants.ts (or at the top of gameLogic.ts)
-export const smallestFragmentArea = Math.PI * 12 * 12;
-export const typeRadiusMapping: Record<FragmentType, number> = {
-	full: 60,
-	large: 44,
-	medium: 28,
-	small: 12
-};
+export const PLAYER_MAX_SHOT_COOLDOWN = 300; // ms between shots
+export const PLAYER_MIN_SHOT_COOLDOWN = 100; // ms between shots
+export const BULLET_MIN_SPEED = 7;
+export const BULLET_MAX_SPEED = 7;
+export const BULLET_MAX_RANGE_PERCENT = 100;
+export const BULLET_MIN_RANGE_PERCENT = 50;

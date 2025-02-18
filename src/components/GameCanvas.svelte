@@ -5,14 +5,11 @@
 		width,
 		height,
 		PI2,
-		shootCooldown,
-		bulletSpeed,
-		numAsteroids,
-		outerMargin,
-		sparkLifetime,
-		SNIPE_TIME_THRESHOLD
-	} from '../lib/constants';
-	import type { Asteroid, Bullet, Spark } from '../lib/gameLogic';
+		ASTEROID_WRAP_FALLBACK_MARGIN,
+		SPARK_MAX_LIFETIME,
+		SNIPE_MIN_TIME_THRESHOLD
+	} from '$lib/constants';
+	import type { Ship, Asteroid, Bullet, Spark } from '../lib/gameLogic';
 	import {
 		computeScoreForHit,
 		spawnAsteroid,
@@ -21,10 +18,17 @@
 		updateAsteroids,
 		updateBullets,
 		updateSparks,
-		currentLevel
+		currentLevel,
+		locateReticle,
+		shipsRemaining,
+		dead
 	} from '../lib/gameLogic';
+	import { getLevelConfig } from '$lib/levelConfig';
 
 	$: level = $currentLevel;
+	$: ships = Array($shipsRemaining);
+	$: gameOver = typeof $shipsRemaining === 'number' && $shipsRemaining < 1;
+
 	let canvas: HTMLCanvasElement;
 	let ctx: CanvasRenderingContext2D;
 
@@ -39,16 +43,32 @@
 	let starRotation = 0;
 	// A very slow rotation speed (radians per frame)
 	const starRotationSpeed = 0.0005;
+	let reticleRotation = 0;
+	const reticleRotationSpeed = 0.1;
 
 	// Game state.
-	let ship = {
+	let ship: Ship = {
 		x: width / 2,
 		y: height / 2,
-		angle: -1.5708,
-		velocity: { x: 0, y: 0 },
-		rotationSpeed: (Math.PI / 180) * 3,
+		vx: 0,
+		vy: -0.1,
+		speed: 0,
+		angle: 0,
+		turnRate: 0, // New property to store current turning speed.
 		acceleration: 0.1,
 		radius: 10
+	};
+
+	const deadShip: Ship = {
+		x: -width,
+		y: -height,
+		vx: 0,
+		vy: 0,
+		speed: 0,
+		angle: 0,
+		turnRate: 0, // New property to store current turning speed.
+		acceleration: 0,
+		radius: 0
 	};
 
 	let snippets: Snippet[] = [];
@@ -57,7 +77,6 @@
 	let bullets: Bullet[] = [];
 	let sparks: Spark[] = [];
 	let score = 0;
-	let bulletRangePercent = 100;
 	let lastShotTime = 0;
 
 	// Add a paused state.
@@ -71,7 +90,9 @@
 		if (paused) {
 			paused = false;
 		} else if (e.key === 'Enter') {
-			paused = !paused;
+			if (gameOver) {
+				resetGame();
+			} else paused = !paused;
 		}
 		keys[e.key] = true;
 	}
@@ -89,7 +110,6 @@
 		const bulletOriginOffset = 20;
 		const bulletX = ship.x + bulletOriginOffset * Math.cos(ship.angle);
 		const bulletY = ship.y + bulletOriginOffset * Math.sin(ship.angle);
-		const maxDistance = (bulletRangePercent / 100) * width;
 		const shotTime = Date.now();
 		const deltaShotTime = shotTime - lastShotTime;
 		const bullet: Bullet = {
@@ -98,7 +118,7 @@
 			vx: bulletSpeed * Math.cos(ship.angle),
 			vy: bulletSpeed * Math.sin(ship.angle),
 			distanceTraveled: 0,
-			maxDistance,
+			range: getLevelConfig(level).bullet.range,
 			shotTime,
 			deltaShotTime
 		};
@@ -107,33 +127,62 @@
 
 	function update() {
 		if (paused) return;
+		const config = getLevelConfig(level);
+		const {
+			ship: { turnAccel, turnDecel, maxTurnRate },
+			bullet: { range: bulletRange, speed: bulletSpeed, shotCooldown }
+		} = config;
 
-		// Ship movement.
-		if (keys['ArrowLeft']) ship.angle -= ship.rotationSpeed;
-		if (keys['ArrowRight']) ship.angle += ship.rotationSpeed;
-		if (keys['ArrowUp']) {
-			ship.velocity.x += ship.acceleration * Math.cos(ship.angle);
-			ship.velocity.y += ship.acceleration * Math.sin(ship.angle);
+		if ($dead) {
+			ship = deadShip;
+		} else {
+			// Easing for ship turning:
+			if (keys['ArrowLeft']) {
+				// Decrease turnRate (make it negative) up to a max negative value.
+				ship.turnRate = Math.max(ship.turnRate - turnAccel, -maxTurnRate);
+			} else if (keys['ArrowRight']) {
+				// Increase turnRate (make it positive) up to max positive.
+				ship.turnRate = Math.min(ship.turnRate + turnAccel, maxTurnRate);
+			} else {
+				// No turning input: ease turnRate back toward 0.
+				if (ship.turnRate > 0) {
+					ship.turnRate = Math.max(ship.turnRate - turnDecel, 0);
+				} else if (ship.turnRate < 0) {
+					ship.turnRate = Math.min(ship.turnRate + turnDecel, 0);
+				}
+			}
+
+			// Apply the turning rate to the ship's angle.
+			ship.angle += ship.turnRate;
+
+			// Ship movement.
+			if (keys['ArrowUp']) {
+				ship.vx += ship.acceleration * Math.cos(ship.angle);
+				ship.vy += ship.acceleration * Math.sin(ship.angle);
+			}
+
+			ship.x += ship.vx;
+			ship.y += ship.vy;
+			if (ship.x < 0) ship.x += width;
+			if (ship.x > width) ship.x -= width;
+			if (ship.y < 0) ship.y += height;
+			if (ship.y > height) ship.y -= height;
+
+			// Shooting.
+			if (keys[' '] && Date.now() - lastShotTime > shotCooldown) {
+				const { bullet, newLastShotTime } = shootBullet(
+					ship,
+					bulletRange,
+					bulletSpeed,
+					lastShotTime
+				);
+				lastShotTime = newLastShotTime;
+				bullets.push(bullet);
+			}
 		}
-		if (keys[' '] && Date.now() - lastShotTime > shootCooldown) {
-			const { bullet, newLastShotTime } = shootBullet(
-				ship,
-				bulletRangePercent,
-				bulletSpeed,
-				lastShotTime
-			);
-			lastShotTime = newLastShotTime;
-			bullets.push(bullet);
-		}
-		ship.x += ship.velocity.x;
-		ship.y += ship.velocity.y;
-		if (ship.x < 0) ship.x += width;
-		if (ship.x > width) ship.x -= width;
-		if (ship.y < 0) ship.y += height;
-		if (ship.y > height) ship.y -= height;
 
 		// Update asteroids, bullets, sparks.
-		updateAsteroids(asteroids);
+		const collision = updateAsteroids(asteroids, ship);
 		bullets = updateBullets(bullets);
 		// Handle collisions.
 		for (let i = bullets.length - 1; i >= 0; i--) {
@@ -203,12 +252,13 @@
 			ctx.stroke();
 		}
 		// Draw bullets.
-		ctx.fillStyle = 'rgb(0,220,255)'; // A lovely orange.
-		bullets.forEach((b) => {
-			const angle = Math.atan2(b.vy, b.vx);
+		ctx.fillStyle = 'rgb(0,220,255)';
+		for (const b of bullets) {
+			const { x, y, vx, vy } = b;
+			const angle = Math.atan2(vy, vx);
 			ctx.save();
 			// Move to the bullet's position.
-			ctx.translate(b.x, b.y);
+			ctx.translate(x, y);
 			// Rotate the canvas so that the ellipse is aligned with the bullet's direction.
 			ctx.rotate(angle);
 			ctx.beginPath();
@@ -217,27 +267,30 @@
 			ctx.ellipse(0, 0, 4, 1.5, 0, 0, PI2);
 			ctx.fill();
 			ctx.restore();
-		});
-		// Draw ship.
-		ctx.save();
-		ctx.translate(ship.x, ship.y);
-		ctx.rotate(ship.angle);
-		ctx.strokeStyle = 'white';
-		ctx.beginPath();
-		ctx.moveTo(20, 0);
-		ctx.lineTo(-10, 10);
-		ctx.lineTo(-10, -10);
-		ctx.closePath();
-		ctx.fillStyle = '#0008';
-		ctx.fill();
-		ctx.stroke();
-		ctx.restore();
+		}
+
+		if (!$dead) {
+			// Draw ship.
+			ctx.save();
+			ctx.translate(ship.x, ship.y);
+			ctx.rotate(ship.angle);
+			ctx.strokeStyle = 'white';
+			ctx.beginPath();
+			ctx.moveTo(20, 0);
+			ctx.lineTo(-10, 10);
+			ctx.lineTo(-10, -10);
+			ctx.closePath();
+			ctx.fillStyle = '#0008';
+			ctx.fill();
+			ctx.stroke();
+			ctx.restore();
+		}
 		// Draw snippets
 		drawSnippets(ctx, snippets);
 		// Draw sparks.
 		for (const spark of sparks) {
 			const { age, x, y } = spark;
-			const t = age / sparkLifetime;
+			const t = age / SPARK_MAX_LIFETIME;
 			const green = Math.round(150 * (1 - t));
 			const alpha = 1 - t;
 			ctx.fillStyle = `rgba(${green}, 220, 255, ${alpha})`;
@@ -251,6 +304,56 @@
 		ctx.fillStyle = 'white';
 		ctx.font = '14px sans-serif';
 		ctx.fillText(`Score: ${score}`, 10, 10);
+
+		// Draw reticle
+		const reticle = locateReticle();
+		if (reticle) {
+			reticleRotation += 0.02;
+			const { x, y, radius } = reticle;
+			ctx.save();
+			// Translate to the asteroid's center.
+			ctx.translate(x, y);
+			// Rotate the reticle.
+			ctx.rotate(reticleRotation);
+			ctx.strokeStyle = 'lime';
+			ctx.lineWidth = 2;
+
+			// Determine the square size.
+			const padding = -5;
+			const reticleRadius = radius + padding;
+			// We'll treat the square as centered on (0,0) with side length = 2 * reticleRadius.
+			const halfSide = reticleRadius;
+			// Define a segment length (how long each corner line is)
+			const segLen = 10;
+
+			ctx.beginPath();
+			// Top-left corner:
+			ctx.moveTo(-halfSide, -halfSide);
+			ctx.lineTo(-halfSide + segLen, -halfSide);
+			ctx.moveTo(-halfSide, -halfSide);
+			ctx.lineTo(-halfSide, -halfSide + segLen);
+
+			// Top-right corner:
+			ctx.moveTo(halfSide, -halfSide);
+			ctx.lineTo(halfSide - segLen, -halfSide);
+			ctx.moveTo(halfSide, -halfSide);
+			ctx.lineTo(halfSide, -halfSide + segLen);
+
+			// Bottom-left corner:
+			ctx.moveTo(-halfSide, halfSide);
+			ctx.lineTo(-halfSide + segLen, halfSide);
+			ctx.moveTo(-halfSide, halfSide);
+			ctx.lineTo(-halfSide, halfSide - segLen);
+
+			// Bottom-right corner:
+			ctx.moveTo(halfSide, halfSide);
+			ctx.lineTo(halfSide - segLen, halfSide);
+			ctx.moveTo(halfSide, halfSide);
+			ctx.lineTo(halfSide, halfSide - segLen);
+
+			ctx.stroke();
+			ctx.restore();
+		}
 	}
 
 	function gameLoop() {
@@ -322,7 +425,8 @@
 	}
 
 	function initAsteroids() {
-		for (let i = 0; i < numAsteroids; i++) {
+		const { initialAsteroidCount } = getLevelConfig();
+		for (let i = 0; i < initialAsteroidCount; i++) {
 			asteroids.push(spawnAsteroid());
 		}
 		gameOn = true;
@@ -333,23 +437,66 @@
 		currentLevel.update((n) => n + 1);
 		setTimeout(initAsteroids, 3000);
 	}
+
+	// Reset game state to initial values.
+	function resetGame() {
+		// Reset ship.
+		ship = {
+			x: width / 2,
+			y: height / 2,
+			vx: 0,
+			vy: -0.1,
+			speed: 0,
+			angle: 0,
+			turnRate: 0, // New property to store current turning speed.
+			acceleration: 0.1,
+			radius: 10
+		};
+		// Clear arrays.
+		snippets = [];
+		keys = {};
+		asteroids = [];
+		bullets = [];
+		sparks = [];
+		// Reset score and lastShotTime.
+		score = 0;
+		lastShotTime = 0;
+		// Reset game state flags.
+		gameOn = false;
+		paused = false;
+		pauseMessage = null;
+		// Reset star rotation.
+		starRotation = 0;
+		reticleRotation = 0;
+		// Reset level store to 1.
+		gameOver = false;
+		dead.set(false);
+		shipsRemaining.set(3);
+		currentLevel.set(1);
+		// Initialize asteroids after a delay if desired.
+		setTimeout(initAsteroids, 2000);
+	}
 </script>
 
 <div class="game-container">
 	<canvas class="star-background" bind:this={starCanvas}></canvas>
-	<div class="crawl-container">
-		{#if paused}
-			<div class="crawl-text">
-				<p>GAME PAUSED</p>
-				<p style="position:relative; left:20px;">PRESS ANY KEY TO CONTINUE...</p>
-			</div>
-		{/if}
-		{#key level}
-			<div class="crawl-text">
-				LEVEL {level}
-			</div>
-		{/key}
-	</div>
+	{#if gameOver}
+		<div class="game-over blink">GAME OVER</div>
+	{:else}
+		<div class="crawl-container">
+			{#if paused}
+				<div class="crawl-text">
+					<p>GAME PAUSED</p>
+					<p style="position:relative; left:20px;">PRESS ANY KEY TO CONTINUE...</p>
+				</div>
+			{/if}
+			{#key level}
+				<div class="crawl-text">
+					LEVEL {level}
+				</div>
+			{/key}
+		</div>
+	{/if}
 	<canvas class="game-elements" bind:this={canvas} {width} {height}></canvas>
 </div>
 
@@ -363,5 +510,20 @@
 	}
 	.game-elements {
 		z-index: 3;
+	}
+	.player-status {
+		position: absolute;
+		bottom: 0;
+		right: 0;
+	}
+	.game-over {
+		position: absolute;
+		left: 50%;
+		top: 50%;
+		transform: translate(-50%, -50%);
+		z-index: 1000;
+		color: lime;
+		font-size: 40px;
+		font-weight: 800;
 	}
 </style>

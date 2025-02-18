@@ -64,6 +64,20 @@
 					opacity: 0;
 				}
 			}
+
+			.blink {
+				animation: blinkAnimation 2s infinite;
+				transition: all;
+			}
+
+			@keyframes blinkAnimation {
+				0% {
+					opacity: 1;
+				}
+				100% {
+					opacity: 0;
+				}
+			}
 		</style>
 	</head>
 	<body data-sveltekit-preload-data="hover">

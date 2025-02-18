@@ -2,21 +2,36 @@ import {
 	width,
 	height,
 	PI2,
-	outerMargin,
-	sparkLifetime,
-	massWeightExponent,
-	SNIPE_MULTIPLIER,
-	SNIPE_TIME_THRESHOLD,
-	MIN_SNIPE_DISTANCE
+	ASTEROID_WRAP_FALLBACK_MARGIN,
+	SPARK_MAX_LIFETIME,
+	ASTEROID_MASS_WEIGHT_EXPONENT,
+	SNIPE_MIN_SCORE_MULTIPLIER,
+	SNIPE_MAX_TIME_THRESHOLD,
+	SNIPE_MIN_DISTANCE
 } from './constants';
+import { getLevelConfig } from './levelConfig';
 import { writable } from 'svelte/store';
 
 export const currentLevel = writable(1);
+export const shipsRemaining = writable(1);
+export const dead = writable(false);
 // --- Constants for Fragmentation ---
 export const smallestFragmentRadius = 12;
 export const smallestFragmentArea = Math.PI * smallestFragmentRadius * smallestFragmentRadius; // area of 12px radius
 
 // --- Type Definitions ---
+export interface Ship {
+	x: number;
+	y: number;
+	vx: number;
+	vy: number;
+	speed: number;
+	angle: number;
+	turnRate: number;
+	acceleration: number;
+	radius: number;
+}
+
 export interface Asteroid {
 	x: number;
 	y: number;
@@ -36,7 +51,7 @@ export interface Bullet {
 	vx: number;
 	vy: number;
 	distanceTraveled: number;
-	maxDistance: number;
+	range: number;
 	shotTime: number; // Time when the bullet was fired (ms)
 	deltaShotTime: number; // Time since the previous bullet was fired (ms)
 }
@@ -56,15 +71,18 @@ export interface ScoreResult {
 	label?: string;
 }
 
-let lastGravitySpike = 0;
-const gravitySpikeCooldown = 3000; // 3 seconds cooldown
+let nearestAsteroid: Asteroid | null;
+let targetAsteroid: Asteroid | null;
+let collision: Asteroid | null = null;
 
 // --- Spawning Functions ---
 
 // Spawn an asteroid off-screen with a random targetRadius between smallest and 70.
 export function spawnAsteroid(): Asteroid {
+	// Choose a random edge for spawning.
 	const edge = Math.floor(Math.random() * 4);
 	let x: number, y: number;
+	// Use 25% of the canvas dimension as an offset.
 	const getRandomOffset = (dim: number) => dim * 0.25;
 	switch (edge) {
 		case 0:
@@ -87,29 +105,39 @@ export function spawnAsteroid(): Asteroid {
 			x = 0;
 			y = 0;
 	}
+
+	// Compute a target point on the canvas for the asteroid to head toward.
 	const targetX = Math.random() * width;
 	const targetY = Math.random() * height;
 	let angle = Math.atan2(targetY - y, targetX - x);
+	// Add some variation.
 	angle += (Math.random() - 0.5) * (Math.PI / 6);
-	// Random radius between smallestFragmentRadius and 70.
-	const minRadius = smallestFragmentRadius;
-	const maxRadius = 70;
-	const r = Math.random() * (maxRadius - minRadius) + minRadius;
-	const area = Math.PI * r * r;
+
+	// Get the current level physics.
+	const {
+		asteroid: { min, max }
+	} = getLevelConfig();
+	// Choose the asteroid's target radius randomly between the dynamic min and max.
+	const targetRadius = Math.random() * (max.radius - min.radius) + min.radius;
+	const area = Math.PI * targetRadius * targetRadius;
+	// Choose a random speed between the min and max speeds.
+	const speed = Math.random() * (max.initialSpeed - min.initialSpeed) + min.initialSpeed;
+
+	// Create some jaggedness.
 	const vertexCount = Math.floor(8 + Math.random() * 5);
 	const offsets: number[] = [];
 	for (let i = 0; i < vertexCount; i++) {
 		offsets.push(0.8 + Math.random() * 0.4);
 	}
-	const speed = 1 + Math.random() * 2;
 	const offsetAngle = Math.random() * PI2;
+
 	return {
 		x,
 		y,
 		angle,
 		speed,
-		radius: r,
-		targetRadius: r,
+		radius: targetRadius,
+		targetRadius,
 		area,
 		vertexCount,
 		offsets,
@@ -133,7 +161,7 @@ export function spawnExplosion(
 	// Weight based on parent's targetRadius normalized between smallest and max (70).
 	const normalizedMass =
 		(asteroid.targetRadius - smallestFragmentRadius) / (70 - smallestFragmentRadius);
-	const weight = Math.pow(normalizedMass, massWeightExponent);
+	const weight = Math.pow(normalizedMass, ASTEROID_MASS_WEIGHT_EXPONENT);
 	const explosionVx = (1 - weight) * bulletVx + weight * asteroidVx;
 	const explosionVy = (1 - weight) * bulletVy + weight * asteroidVy;
 	const explosionBaseAngle = Math.atan2(explosionVy, explosionVx);
@@ -172,66 +200,72 @@ function randomPointInCircle(R: number): { x: number; y: number } {
  * The function subtracts each fragment's area from the parent's available area until the area left
  * is less than the area of a smallest fragment.
  */
+// In your fragmentAsteroid function (from gameLogic.ts):
 export function fragmentAsteroid(bullet: Bullet, asteroid: Asteroid): Asteroid[] {
-	// If the asteroid's area is too small to split into at least two smallest fragments, return [].
-	if (asteroid.area < 2 * smallestFragmentArea) {
-		return [];
-	}
+	// Destructure one level from the physics object.
+	const {
+		asteroid: {
+			min,
+			min: { fragSpeed: minFragSpeed },
+			max: { fragSpeed: maxFragSpeed }
+		}
+	} = getLevelConfig();
+	const minFragArea = min.area;
+
+	// If the asteroid's area is less than twice the minimum fragment area, do not fragment.
+	if (asteroid.area < 2 * minFragArea) return [];
 
 	let availableArea = asteroid.area;
 	const fragments: Asteroid[] = [];
 
-	// Compute parent's velocity vector.
-	const parentV = {
-		x: asteroid.speed * Math.cos(asteroid.angle),
-		y: asteroid.speed * Math.sin(asteroid.angle)
-	};
-	// Bullet's velocity vector.
-	const bulletV = { x: bullet.vx, y: bullet.vy };
+	// Fixed spread for randomness.
+	const spreadRange = 40 * (Math.PI / 180); // 40° total variation.
 
-	// Define weights for the components.
-	const w1 = 2; // placement component weight
-	const w2 = 1; // parent's velocity weight
-	const w3 = 0.2; // bullet's velocity weight (reduced)
-
-	// New constant to reduce overall explosion force.
-	const explosionForceScale = 0.5;
-
-	while (availableArea >= smallestFragmentArea) {
-		// Choose a fragment area between smallestFragmentArea and up to half of availableArea.
-		const maxFragArea = Math.max(smallestFragmentArea, availableArea * 0.5);
-		const fragArea = Math.random() * (maxFragArea - smallestFragmentArea) + smallestFragmentArea;
+	while (availableArea >= minFragArea) {
+		const maxFragArea = Math.max(minFragArea, availableArea * 0.5);
+		const fragArea = Math.random() * (maxFragArea - minFragArea) + minFragArea;
 		if (fragArea > availableArea) break;
 
-		// Compute the fragment's radius.
 		const fragRadius = Math.sqrt(fragArea / Math.PI);
+		const baseRadius = fragRadius; // Target radius equals computed radius.
 
-		// Determine a random placement for the fragment within the parent's circle.
-		// Its center must be within a circle of radius (asteroid.radius - fragRadius)
+		// Position the fragment so its outer edge is tangent to the parent's inner edge.
 		const maxPosRadius = Math.max(0, asteroid.radius - fragRadius);
 		const pos = randomPointInCircle(maxPosRadius);
 
-		// Compute placement component.
+		// Compute the placement unit vector.
 		const dist = Math.sqrt(pos.x * pos.x + pos.y * pos.y);
 		const placementUnit = dist > 0 ? { x: pos.x / dist, y: pos.y / dist } : { x: 1, y: 0 };
-		const vPlacement = { x: w1 * placementUnit.x, y: w1 * placementUnit.y };
+		const w1 = 2; // Weight for the placement component.
 
-		// Combine the components:
-		const combinedVx = vPlacement.x + w2 * parentV.x + w3 * bulletV.x;
-		const combinedVy = vPlacement.y + w2 * parentV.y + w3 * bulletV.y;
+		// Compute the parent's velocity vector.
+		const parentVx = asteroid.speed * Math.cos(asteroid.angle);
+		const parentVy = asteroid.speed * Math.sin(asteroid.angle);
+		const randomAngle = (Math.random() - 0.5) * spreadRange;
+		const extraVx = Math.cos(randomAngle);
+		const extraVy = Math.sin(randomAngle);
 
-		// Scale down the overall explosion force.
-		const scaledVx = explosionForceScale * combinedVx;
-		const scaledVy = explosionForceScale * combinedVy;
+		let fragVx = parentVx + w1 * placementUnit.x + extraVx;
+		let fragVy = parentVy + w1 * placementUnit.y + extraVy;
+		let fragSpeed = Math.sqrt(fragVx * fragVx + fragVy * fragVy);
 
-		const fragAngle = Math.atan2(scaledVy, scaledVx);
-		const fragSpeed =
-			Math.sqrt(scaledVx * scaledVx + scaledVy * scaledVy) * (1 + Math.random() * 0.5);
+		// Cap the fragment's speed to at most parent's speed times the limit factor.
+		if (fragSpeed > maxFragSpeed) {
+			const scale = maxFragSpeed / fragSpeed;
+			fragVx *= scale;
+			fragVy *= scale;
+			fragSpeed = maxFragSpeed;
+		} else if (fragSpeed < minFragSpeed) {
+			const scale = minFragSpeed / fragSpeed;
+			fragVx *= scale;
+			fragVy *= scale;
+			fragSpeed = minFragSpeed;
+		}
 
-		// Additional visual properties.
+		const fragAngle = Math.atan2(fragVy, fragVx);
 		const vertexCount = Math.floor(8 + Math.random() * 5);
 		const offsets: number[] = [];
-		for (let i = 0; i < vertexCount; i++) {
+		for (let j = 0; j < vertexCount; j++) {
 			offsets.push(0.8 + Math.random() * 0.4);
 		}
 		const offsetAngle = Math.random() * PI2;
@@ -242,7 +276,7 @@ export function fragmentAsteroid(bullet: Bullet, asteroid: Asteroid): Asteroid[]
 			angle: fragAngle,
 			speed: fragSpeed,
 			radius: fragRadius,
-			targetRadius: fragRadius,
+			targetRadius: baseRadius,
 			area: fragArea,
 			vertexCount,
 			offsets,
@@ -256,19 +290,57 @@ export function fragmentAsteroid(bullet: Bullet, asteroid: Asteroid): Asteroid[]
 }
 
 // --- Update Functions ---
-export function updateAsteroids(asteroids: Asteroid[]): void {
-	let i = asteroids.length;
-	if (i < 1) return;
+export function updateAsteroids(asteroids: Asteroid[], ship: Ship): Asteroid | null {
+	const asteroidCount = asteroids.length;
+	let i = asteroidCount;
+	if (i < 1) {
+		targetAsteroid = null;
+		return null;
+	}
+	let near = width + height;
+	const { x: shipX, y: shipY, radius: shipRadius } = ship;
 	while (i--) {
 		const a = asteroids[i];
-		const { x, y, speed, angle } = a;
+		const { x, y, speed, angle, radius } = a;
 		a.x += speed * Math.cos(angle);
 		a.y += speed * Math.sin(angle);
-		if (x < -outerMargin) a.x = width + outerMargin;
-		if (x > width + outerMargin) a.x = -outerMargin;
-		if (y < -outerMargin) a.y = height + outerMargin;
-		if (y > height + outerMargin) a.y = -outerMargin;
+		if (x < -ASTEROID_WRAP_FALLBACK_MARGIN) a.x = width + ASTEROID_WRAP_FALLBACK_MARGIN;
+		if (x > width + ASTEROID_WRAP_FALLBACK_MARGIN) a.x = -ASTEROID_WRAP_FALLBACK_MARGIN;
+		if (y < -ASTEROID_WRAP_FALLBACK_MARGIN) a.y = height + ASTEROID_WRAP_FALLBACK_MARGIN;
+		if (y > height + ASTEROID_WRAP_FALLBACK_MARGIN) a.y = -ASTEROID_WRAP_FALLBACK_MARGIN;
+
+		// Check for collision with the ship.
+		const dx = a.x - shipX;
+		const dy = a.y - shipY;
+		const collisionDistance = radius + shipRadius;
+		const compDistance = dx ** 2 + dy ** 2 - collisionDistance ** 2;
+		if (compDistance > near) {
+			near = compDistance;
+			nearestAsteroid = a;
+			if (asteroidCount < 4) targetAsteroid = a;
+		}
+
+		if (compDistance < 1) {
+			/// detailed comparison if close
+			const dist = Math.sqrt(dx * dx + dy * dy);
+			if (dist < collisionDistance) {
+				// Collision detected: trigger game over.
+				targetAsteroid = null;
+				collision = a;
+				shipsRemaining.update((n) => n - 1);
+				dead.update((n) => !n);
+				// Optionally, you can break out early if the game is over.
+			}
+		}
 	}
+
+	return collision || null;
+}
+
+export function locateReticle() {
+	if (!targetAsteroid) return;
+	const { x, y, radius } = targetAsteroid;
+	return { x, y, radius: radius + 16 };
 }
 
 export function updateBullets(bullets: Bullet[]): Bullet[] {
@@ -277,7 +349,7 @@ export function updateBullets(bullets: Bullet[]): Bullet[] {
 	if (i < 1) return [];
 	while (i--) {
 		const b = bullets[i];
-		const { distanceTraveled, maxDistance } = b;
+		const { distanceTraveled, range: maxDistance } = b;
 		if (distanceTraveled >= maxDistance) continue;
 		const { vx, vy } = b;
 		const stepDistance = Math.sqrt(vx * vx + vy * vy);
@@ -302,7 +374,7 @@ export function updateSparks(sparks: Spark[]): Spark[] {
 	while (i--) {
 		const spark = sparks[i];
 		const { vx, vy, age } = spark;
-		if (age > sparkLifetime) continue;
+		if (age > SPARK_MAX_LIFETIME) continue;
 		spark.x += vx;
 		spark.y += vy;
 		spark.age++;
@@ -311,10 +383,8 @@ export function updateSparks(sparks: Spark[]): Spark[] {
 	return updatedSparks;
 }
 
-export function computeScoreForHit(
-	asteroid: { targetRadius: number },
-	bullet: { distanceTraveled: number; maxDistance: number; deltaShotTime: number }
-): ScoreResult {
+export function computeScoreForHit(asteroid: Asteroid, bullet: Bullet): ScoreResult {
+	const { range, distanceTraveled, deltaShotTime } = bullet;
 	const maxScore = 100;
 	const minScore = 10;
 	// Linear interpolation: smallest asteroid (targetRadius == 12) yields max score,
@@ -323,13 +393,11 @@ export function computeScoreForHit(
 	const baseScore = Math.round(maxScore - t * (maxScore - minScore));
 
 	// Check if both snipe conditions are met.
-	let multiplier = 1;
-	if (
-		bullet.distanceTraveled >= MIN_SNIPE_DISTANCE * bullet.maxDistance &&
-		bullet.deltaShotTime > SNIPE_TIME_THRESHOLD
-	) {
-		multiplier = Math.round(
-			2 * (bullet.distanceTraveled / (MIN_SNIPE_DISTANCE * bullet.maxDistance))
+	let multiplier = asteroid === targetAsteroid ? 4 : 1;
+	if (distanceTraveled >= SNIPE_MIN_DISTANCE && deltaShotTime > SNIPE_MAX_TIME_THRESHOLD) {
+		multiplier = Math.max(
+			multiplier,
+			Math.round(2 * (distanceTraveled / (SNIPE_MIN_DISTANCE * range)))
 		);
 	}
 
