@@ -22,7 +22,9 @@ import {
 	ASTEROID_MIN_FRAG_SPEED,
 	ASTEROID_MAX_FRAG_SPEED,
 	ASTEROID_MIN_INITIAL_SPEED,
-	ASTEROID_MAX_INITIAL_SPEED
+	ASTEROID_MAX_INITIAL_SPEED,
+	PLAYER_MIN_ACCELERATION,
+	PLAYER_MAX_ACCELERATION
 } from './constants';
 import { currentLevel } from './gameLogic'; // adjust the path if needed
 
@@ -83,6 +85,12 @@ const config = {
 		}
 	},
 	ship: {
+		acceleration: {
+			start: PLAYER_MIN_ACCELERATION,
+			end: PLAYER_MAX_ACCELERATION,
+			startLevel: 1,
+			endLevel: 30
+		},
 		turnAccel: {
 			start: PLAYER_MIN_TURN_ACCEL,
 			end: PLAYER_MAX_TURN_ACCEL,
@@ -149,6 +157,7 @@ export function getLevelConfig(level?: number) {
 	const shipTurnAccel = interpolateValue(config.ship.turnAccel, L);
 	const shipTurnDecel = interpolateValue(config.ship.turnDecel, L);
 	const shipMaxTurnRate = interpolateValue(config.ship.maxTurnRate, L);
+	const shipAcceleration = interpolateValue(config.ship.acceleration, L);
 
 	const bulletRangePercent = interpolateValue(config.bullet.rangePercent, L);
 	const bulletRange = Math.round((bulletRangePercent / 100) * width);
@@ -178,7 +187,12 @@ export function getLevelConfig(level?: number) {
 				explosionFactor: asteroidMaxExplosionFactor
 			}
 		},
-		ship: { turnAccel: shipTurnAccel, turnDecel: shipTurnDecel, maxTurnRate: shipMaxTurnRate },
+		ship: {
+			turnAccel: shipTurnAccel,
+			turnDecel: shipTurnDecel,
+			maxTurnRate: shipMaxTurnRate,
+			acceleration: shipAcceleration
+		},
 		bullet: { range: bulletRange, speed: bulletSpeed, shotCooldown },
 		initialAsteroidCount,
 		fragmentLimitingSpeedFactor

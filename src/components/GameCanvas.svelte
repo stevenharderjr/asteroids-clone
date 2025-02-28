@@ -134,7 +134,7 @@
 		if (paused) return;
 		const config = getLevelConfig(level);
 		const {
-			ship: { turnAccel, turnDecel, maxTurnRate },
+			ship: { turnAccel, turnDecel, maxTurnRate, acceleration },
 			bullet: { range: bulletRange, speed: bulletSpeed, shotCooldown }
 		} = config;
 
@@ -160,8 +160,8 @@
 
 			// Ship movement.
 			if (keys['ArrowUp']) {
-				ship.vx += ship.acceleration * Math.cos(ship.angle);
-				ship.vy += ship.acceleration * Math.sin(ship.angle);
+				ship.vx += acceleration * Math.cos(ship.angle);
+				ship.vy += acceleration * Math.sin(ship.angle);
 			}
 
 			ship.x += ship.vx;

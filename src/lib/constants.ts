@@ -10,6 +10,8 @@ export const PLAYER_MAX_TURN_ACCEL = 0.02; // how quickly the turn rate increase
 export const PLAYER_MAX_TURN_DECEL = 0.02; // how quickly turn rate decays without input
 export const PLAYER_MIN_TURN_ACCEL = 0.02;
 export const PLAYER_MIN_TURN_DECEL = 0.02;
+export const PLAYER_MAX_ACCELERATION = 0.3;
+export const PLAYER_MIN_ACCELERATION = 0.1;
 
 // Define constants for scoring.
 export const SNIPE_MAX_TIME_THRESHOLD = 1000;
