@@ -46,7 +46,7 @@
 	let reticleRotation = 0;
 	const reticleRotationSpeed = 0.1;
 	// Respawn state.
-	let respawning = false;
+	let respawning = true;
 	let respawnStartTime = 0;
 	const respawnDuration = 2000;
 
@@ -162,6 +162,10 @@
 			if (keys['ArrowUp']) {
 				ship.vx += acceleration * Math.cos(ship.angle);
 				ship.vy += acceleration * Math.sin(ship.angle);
+			}
+			if (keys['ArrowDown']) {
+				ship.vx += acceleration * -0.5 * Math.cos(ship.angle);
+				ship.vy += acceleration * -0.5 * Math.sin(ship.angle);
 			}
 
 			ship.x += ship.vx;
@@ -282,15 +286,20 @@
 		if (respawning) {
 			const elapsed = Date.now() - respawnStartTime;
 			// Calculate a shimmer alpha that oscillates (for instance, using sine).
-			const shimmerAlpha = 0.65 + 0.35 * Math.sin(elapsed / 100);
+			const shimmerAlpha = 0.65 + 0.35 * Math.sin(elapsed / 30);
 			ctx.save();
 			ctx.translate(ship.x, ship.y);
 			ctx.rotate(ship.angle);
-			ctx.fillStyle = `rgba(160,160,160,${shimmerAlpha.toFixed(2)})`;
+			ctx.fillStyle = `rgba(120,120,120,${shimmerAlpha.toFixed(2)})`;
 			ctx.beginPath();
 			ctx.moveTo(20, 0);
+			ctx.lineTo(-3, 12);
 			ctx.lineTo(-10, 10);
+			ctx.lineTo(-9, 2);
+			ctx.lineTo(8, 0);
+			ctx.lineTo(-9, -2);
 			ctx.lineTo(-10, -10);
+			ctx.lineTo(-3, -12);
 			ctx.closePath();
 			ctx.fill();
 			ctx.restore();
@@ -302,8 +311,13 @@
 			ctx.strokeStyle = 'white';
 			ctx.beginPath();
 			ctx.moveTo(20, 0);
+			ctx.lineTo(-3, 12);
 			ctx.lineTo(-10, 10);
+			ctx.lineTo(-9, 2);
+			ctx.lineTo(8, 0);
+			ctx.lineTo(-9, -2);
 			ctx.lineTo(-10, -10);
+			ctx.lineTo(-3, -12);
 			ctx.closePath();
 			ctx.fillStyle = '#0008';
 			ctx.fill();
