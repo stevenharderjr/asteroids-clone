@@ -215,7 +215,7 @@ export function fragmentAsteroid(bullet: Bullet, asteroid: Asteroid): Asteroid[]
 	// If the asteroid's area is less than twice the minimum fragment area, do not fragment.
 	if (asteroid.area < 2 * minFragArea) return [];
 
-	let availableArea = asteroid.area;
+	let availableArea = asteroid.area * 0.6;
 	const fragments: Asteroid[] = [];
 
 	// Fixed spread for randomness.
